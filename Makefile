@@ -1,2 +1,2 @@
 build-proto:
-	protoc --go_out=plugins=grpc:proto -I proto proto/helloworld.proto
+	protoc --go_out=plugins=grpc:helloworld -I helloworld helloworld/helloworld.proto
