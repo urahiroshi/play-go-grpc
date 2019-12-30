@@ -3,3 +3,6 @@ build-proto:
 
 build-server:
 	go build -o bin/server ./server
+
+build-client:
+	go build -o bin/client ./client
