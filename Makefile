@@ -6,3 +6,6 @@ build-server:
 
 build-client:
 	go build -o bin/client ./client
+
+build-proxy:
+	go build -o bin/proxy ./proxy
