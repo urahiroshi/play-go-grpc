@@ -2,12 +2,12 @@ package main
 
 import (
 	"crypto/tls"
-	"golang.org/x/net/http2"
 	"log"
 	"net"
-	"net/http"
 	"net/http/httputil"
 	"net/url"
+
+	"golang.org/x/net/http2"
 )
 
 func proxyForGRPC(backendURL string) (*httputil.ReverseProxy, error) {
@@ -15,12 +15,12 @@ func proxyForGRPC(backendURL string) (*httputil.ReverseProxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.Scheme = "https"
 	dial := func(network, addr string, cfg *tls.Config) (net.Conn, error) {
 		return net.Dial(network, addr)
 	}
 	transport := &http2.Transport{
-		DialTLS: dial,
+		AllowHTTP: true,
+		DialTLS:   dial,
 	}
 	p := httputil.NewSingleHostReverseProxy(u)
 	p.Transport = transport
@@ -28,20 +28,22 @@ func proxyForGRPC(backendURL string) (*httputil.ReverseProxy, error) {
 }
 
 func main() {
-	// director := func(request *http.Request) {
-	// 	request.URL.Scheme = "https"
-	// 	request.URL.Host = ":50052"
-	// }
-	// rp := &httputil.ReverseProxy{Director: director}
-	p, err := proxyForGRPC("localhost:50052")
+	p, err := proxyForGRPC("http://localhost:50052")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	server := http.Server{
-		Addr:    ":50051",
-		Handler: p,
-	}
-	if err := server.ListenAndServe(); err != nil {
+
+	server := http2.Server{}
+	l, err := net.Listen("tcp", "0.0.0.0:50051")
+	if err != nil {
 		log.Fatal(err.Error())
+	}
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		server.ServeConn(conn, &http2.ServeConnOpts{Handler: p})
 	}
 }
