@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 
@@ -44,6 +45,10 @@ func main() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		server.ServeConn(conn, &http2.ServeConnOpts{Handler: p})
+		server.ServeConn(conn, &http2.ServeConnOpts{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				p.ServeHTTP(w, r)
+			}),
+		})
 	}
 }
