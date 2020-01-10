@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"io/ioutil"
+	// "encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	proto "github.com/golang/protobuf/proto"
-	tpb "github.com/golang/protobuf/proto/proto3_proto"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"golang.org/x/net/http2"
@@ -101,64 +101,18 @@ func main() {
 					return
 				}
 				protoBytes := grpcBytes[5:]
-				pb := new(tpb.Message)
-				if err := proto.Unmarshal(protoBytes, pb); err != nil {
+				if err := proto.Unmarshal(protoBytes, message); err != nil {
 					log.Print(err.Error())
 					return
 				}
 
-				if err := message.ConvertFrom(pb); err != nil {
-					log.Print(err.Error())
-					return
-				}
-				json, err := message.MarshalJSON()
+				jsonBytes, err := message.MarshalJSON()
 				if err != nil {
 					log.Print(err.Error())
 					return
 				}
-				log.Print(json)
+				log.Print(string(jsonBytes))
 				log.Printf("")
-
-				// msgDesc, err := desc.LoadMessageDescriptorForMessage(pb)
-				// if err != nil {
-				// 	log.Print(err.Error())
-				// 	return
-				// }
-				// fieldDescs := msgDesc.GetFields()
-				// log.Print(fieldDescs)
-
-				// // buf := proto.NewBuffer(protoBytes)
-				// // str1, err := buf.DecodeStringBytes()
-				// // if err != nil {
-				// // 	log.Print(err.Error())
-				// // 	return
-				// // }
-				// // log.Print(str1)
-
-				// str2 := pb.String()
-				// log.Print(str2)
-
-				// msg, err := dynamic.AsDynamicMessage(pb)
-				// if err != nil {
-				// 	log.Print(err.Error())
-				// 	return
-				// }
-
-				// // for fieldDesc := range fieldDescs {
-				// // 	msg.ForEachMapFieldEntry(fieldDesc, func(key, val interface{}) {
-				// // 		log.Print("field:")
-				// // 		log.Print(key)
-				// // 		log.Print(val)
-				// // 	})
-				// // }
-
-				// json, err := msg.MarshalJSON()
-				// if err != nil {
-				// 	log.Print(err.Error())
-				// 	return
-				// }
-				// log.Print(json)
-				// log.Printf("")
 
 				p.ServeHTTP(w, r)
 			}),
