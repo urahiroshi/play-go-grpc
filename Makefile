@@ -9,3 +9,7 @@ build-client:
 
 build-proxy:
 	go build -o bin/proxy ./proxy
+
+start-server:
+	pkill -f bin/server | true
+	bin/server &
