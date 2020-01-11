@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"io/ioutil"
@@ -114,7 +115,11 @@ func main() {
 				log.Print(string(jsonBytes))
 				log.Printf("")
 
+				// recover body
+				r.Body = ioutil.NopCloser(bytes.NewReader(grpcBytes))
+
 				p.ServeHTTP(w, r)
+
 			}),
 		})
 	}
