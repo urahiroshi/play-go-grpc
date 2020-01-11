@@ -15,6 +15,7 @@ import (
 	"time"
 
 	proto "github.com/golang/protobuf/proto"
+	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"golang.org/x/net/http2"
@@ -59,6 +60,53 @@ func getNames(u *url.URL) (string, string) {
 	return serviceName, methodName
 }
 
+func printAsJson(b []byte, messageDesc *desc.MessageDescriptor) {
+	message := dynamic.NewMessage(messageDesc)
+	if err := proto.Unmarshal(b, message); err != nil {
+		log.Print(err.Error())
+		return
+	}
+	jsonBytes, err := message.MarshalJSON()
+	if err != nil {
+		log.Print(err.Error())
+		return
+	}
+	log.Print(string(jsonBytes))
+}
+
+type responseWriteProxy struct {
+	writer     http.ResponseWriter
+	methodDesc *desc.MethodDescriptor
+	http.ResponseWriter
+}
+
+func newResponseWriteProxy(
+	writer http.ResponseWriter,
+	methodDesc *desc.MethodDescriptor,
+) *responseWriteProxy {
+	wp := new(responseWriteProxy)
+	wp.writer = writer
+	wp.methodDesc = methodDesc
+	return wp
+}
+
+func (wp *responseWriteProxy) Header() http.Header {
+	return wp.writer.Header()
+}
+
+func (wp *responseWriteProxy) Write(b []byte) (int, error) {
+	if len(b) > 5 {
+		protoBytes := b[5:]
+		messageDesc := wp.methodDesc.GetOutputType()
+		printAsJson(protoBytes, messageDesc)
+	}
+	return wp.writer.Write(b)
+}
+
+func (wp *responseWriteProxy) WriteHeader(statusCode int) {
+	wp.writer.WriteHeader(statusCode)
+}
+
 func main() {
 	p, err := proxyForGRPC("http://localhost:50052")
 	if err != nil {
@@ -92,8 +140,6 @@ func main() {
 					return
 				}
 				methodDesc := serviceDesc.FindMethodByName(methodName)
-				messageDesc := methodDesc.GetInputType()
-				message := dynamic.NewMessage(messageDesc)
 
 				grpcBytes, err := ioutil.ReadAll(r.Body)
 				defer r.Body.Close()
@@ -102,24 +148,15 @@ func main() {
 					return
 				}
 				protoBytes := grpcBytes[5:]
-				if err := proto.Unmarshal(protoBytes, message); err != nil {
-					log.Print(err.Error())
-					return
-				}
-
-				jsonBytes, err := message.MarshalJSON()
-				if err != nil {
-					log.Print(err.Error())
-					return
-				}
-				log.Print(string(jsonBytes))
-				log.Printf("")
+				messageDesc := methodDesc.GetInputType()
+				printAsJson(protoBytes, messageDesc)
 
 				// recover body
 				r.Body = ioutil.NopCloser(bytes.NewReader(grpcBytes))
 
-				p.ServeHTTP(w, r)
+				wp := newResponseWriteProxy(w, methodDesc)
 
+				p.ServeHTTP(wp, r)
 			}),
 		})
 	}
