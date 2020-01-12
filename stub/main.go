@@ -1,21 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
+	"encoding/json"
 	"io/ioutil"
-	// "encoding/json"
 	"log"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
 
 	proto "github.com/golang/protobuf/proto"
-	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"golang.org/x/net/http2"
@@ -23,22 +19,14 @@ import (
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 )
 
-func proxyForGRPC(backendURL string) (*httputil.ReverseProxy, error) {
-	u, err := url.Parse(backendURL)
-	if err != nil {
-		return nil, err
+var fixtureMap map[string]map[string]map[string]string
+var fixtureJson = []byte(`{
+	"helloworld.Greeter": {
+		"SayGoodbye": {
+			"{\"hoge\":\"hogehoge\",\"fuga\":\"fugafuga\"}": "{\"value\":\"hoge\"}"
+		}
 	}
-	dial := func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-		return net.Dial(network, addr)
-	}
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLS:   dial,
-	}
-	p := httputil.NewSingleHostReverseProxy(u)
-	p.Transport = transport
-	return p, nil
-}
+}`)
 
 func newReflectionClient(ctx context.Context) *grpcreflect.Client {
 	refConn, err := grpc.Dial("localhost:50052", grpc.WithInsecure(), grpc.WithBlock())
@@ -60,59 +48,22 @@ func getNames(u *url.URL) (string, string) {
 	return serviceName, methodName
 }
 
-func printAsJson(b []byte, messageDesc *desc.MessageDescriptor) {
-	message := dynamic.NewMessage(messageDesc)
-	if err := proto.Unmarshal(b, message); err != nil {
-		log.Print(err.Error())
-		return
-	}
-	jsonBytes, err := message.MarshalJSON()
+func writeResponse(w http.ResponseWriter, message proto.Message) {
+	protoBytes, err := proto.Marshal(message)
 	if err != nil {
 		log.Print(err.Error())
 		return
 	}
-	log.Print(string(jsonBytes))
-}
-
-type responseWriteProxy struct {
-	writer     http.ResponseWriter
-	methodDesc *desc.MethodDescriptor
-	http.ResponseWriter
-}
-
-func newResponseWriteProxy(
-	writer http.ResponseWriter,
-	methodDesc *desc.MethodDescriptor,
-) *responseWriteProxy {
-	wp := new(responseWriteProxy)
-	wp.writer = writer
-	wp.methodDesc = methodDesc
-	return wp
-}
-
-func (wp *responseWriteProxy) Header() http.Header {
-	return wp.writer.Header()
-}
-
-func (wp *responseWriteProxy) Write(b []byte) (int, error) {
-	if len(b) > 5 {
-		protoBytes := b[5:]
-		messageDesc := wp.methodDesc.GetOutputType()
-		printAsJson(protoBytes, messageDesc)
-	}
-	return wp.writer.Write(b)
-}
-
-func (wp *responseWriteProxy) WriteHeader(statusCode int) {
-	wp.writer.WriteHeader(statusCode)
+	grpcBytes := append([]byte{0, 0, 0, 0, byte(len(protoBytes))}, protoBytes...)
+	w.Header().Set("Trailer", "Grpc-Message, Grpc-Status")
+	w.Header().Set("Content-Type", "application/grpc")
+	w.WriteHeader(http.StatusOK)
+	w.Write(grpcBytes)
+	w.Header().Set("Grpc-Message", "")
+	w.Header().Set("Grpc-Status", "0")
 }
 
 func main() {
-	p, err := proxyForGRPC("http://localhost:50052")
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
 	server := http2.Server{}
 	l, err := net.Listen("tcp", "0.0.0.0:50051")
 	if err != nil {
@@ -148,16 +99,41 @@ func main() {
 					return
 				}
 				protoBytes := grpcBytes[5:]
-				messageDesc := methodDesc.GetInputType()
-				printAsJson(protoBytes, messageDesc)
+				inputType := methodDesc.GetInputType()
 
-				// recover body
-				r.Body = ioutil.NopCloser(bytes.NewReader(grpcBytes))
+				// construct request message
+				message := dynamic.NewMessage(inputType)
+				if err := proto.Unmarshal(protoBytes, message); err != nil {
+					log.Print(err.Error())
+					return
+				}
 
-				wp := newResponseWriteProxy(w, methodDesc)
+				jsonBytes, err := message.MarshalJSON()
+				if err != nil {
+					log.Print(err.Error())
+					return
+				}
 
-				p.ServeHTTP(wp, r)
-				log.Print(wp.Header())
+				err = json.Unmarshal(fixtureJson, &fixtureMap)
+				if err != nil {
+					log.Print(err.Error())
+					return
+				}
+
+				resJson, ok := fixtureMap[serviceName][methodName][string(jsonBytes)]
+				if !ok {
+					log.Print("no fixture found")
+					return
+				}
+
+				// stubbed request message
+				outputType := methodDesc.GetOutputType()
+				resMessage := dynamic.NewMessage(outputType)
+				if err := resMessage.UnmarshalJSON([]byte(resJson)); err != nil {
+					log.Print(err.Error())
+					return
+				}
+				writeResponse(w, resMessage)
 			}),
 		})
 	}

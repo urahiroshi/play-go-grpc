@@ -20,7 +20,8 @@ message HelloReply {
 }
 
 message GoodbyeRequest {
-  string key = 1;
+  string hoge = 1;
+  string fuga = 2;
 }
 
 message GoodbyeReply {
