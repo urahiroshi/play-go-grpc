@@ -55,10 +55,12 @@ func writeResponse(w http.ResponseWriter, message proto.Message) {
 		return
 	}
 	grpcBytes := append([]byte{0, 0, 0, 0, byte(len(protoBytes))}, protoBytes...)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Add("Trailer", "Grpc-Message:")
-	w.Header().Add("Trailer", "Grpc-Status: 0")
+	w.Header().Set("Trailer", "Grpc-Message, Grpc-Status")
+	w.Header().Set("Content-Type", "application/grpc")
+	w.WriteHeader(http.StatusOK)
 	w.Write(grpcBytes)
+	w.Header().Set("Grpc-Message", "")
+	w.Header().Set("Grpc-Status", "0")
 }
 
 func main() {
@@ -97,10 +99,10 @@ func main() {
 					return
 				}
 				protoBytes := grpcBytes[5:]
-				messageDesc := methodDesc.GetInputType()
+				inputType := methodDesc.GetInputType()
 
 				// construct request message
-				message := dynamic.NewMessage(messageDesc)
+				message := dynamic.NewMessage(inputType)
 				if err := proto.Unmarshal(protoBytes, message); err != nil {
 					log.Print(err.Error())
 					return
@@ -125,7 +127,8 @@ func main() {
 				}
 
 				// stubbed request message
-				resMessage := dynamic.NewMessage(messageDesc)
+				outputType := methodDesc.GetOutputType()
+				resMessage := dynamic.NewMessage(outputType)
 				if err := resMessage.UnmarshalJSON([]byte(resJson)); err != nil {
 					log.Print(err.Error())
 					return
