@@ -48,13 +48,26 @@ func getNames(u *url.URL) (string, string) {
 	return serviceName, methodName
 }
 
+func createGRPCBytes(protoBytes []byte) []byte {
+	length := len(protoBytes)
+	return append([]byte{
+		// not compress
+		0,
+		byte(length / (256 ^ 3)),
+		byte((length % (256 ^ 3)) / (256 ^ 2)),
+		byte((length % (256 ^ 2)) / 256),
+		byte(length % 256),
+	}, protoBytes...)
+}
+
 func writeResponse(w http.ResponseWriter, message proto.Message) {
 	protoBytes, err := proto.Marshal(message)
 	if err != nil {
 		log.Print(err.Error())
 		return
 	}
-	grpcBytes := append([]byte{0, 0, 0, 0, byte(len(protoBytes))}, protoBytes...)
+	grpcBytes := createGRPCBytes(protoBytes)
+	log.Print(grpcBytes)
 	w.Header().Set("Trailer", "Grpc-Message, Grpc-Status")
 	w.Header().Set("Content-Type", "application/grpc")
 	w.WriteHeader(http.StatusOK)
