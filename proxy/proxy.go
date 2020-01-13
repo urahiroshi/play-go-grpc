@@ -104,6 +104,7 @@ func (wp *responseWriteProxy) Write(b []byte) (int, error) {
 }
 
 func (wp *responseWriteProxy) WriteHeader(statusCode int) {
+	log.Printf("statusCode=%d", statusCode)
 	wp.writer.WriteHeader(statusCode)
 }
 
@@ -157,7 +158,9 @@ func main() {
 				wp := newResponseWriteProxy(w, methodDesc)
 
 				p.ServeHTTP(wp, r)
-				log.Print(wp.Header())
+				for key, values := range wp.Header() {
+					log.Printf("key=%s, values=%s", key, values)
+				}
 			}),
 		})
 	}

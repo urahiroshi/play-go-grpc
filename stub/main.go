@@ -19,11 +19,28 @@ import (
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 )
 
-var fixtureMap map[string]map[string]map[string]string
+type Response struct {
+	Body       string              `json:"Body"`
+	StatusCode int                 `json:"StatusCode"`
+	Header     map[string][]string `json:"Header"`
+	Trailer    map[string][]string `json:"Trailer"`
+}
+
+var fixtureMap map[string]map[string]map[string]Response
 var fixtureJson = []byte(`{
 	"helloworld.Greeter": {
 		"SayGoodbye": {
-			"{\"hoge\":\"hogehoge\",\"fuga\":\"fugafuga\"}": "{\"value\":\"hoge\"}"
+			"{\"hoge\":\"hogehoge\",\"fuga\":\"fugafuga\"}": {
+				"Body": "{\"value\":\"hoge\"}",
+				"StatusCode": 200,
+				"Header": {
+					"Content-Type": ["application/grpc"]
+				},
+				"Trailer": {
+					"Grpc-Message": [""],
+					"Grpc-Status": ["0"]
+				}
+			}
 		}
 	}
 }`)
@@ -48,19 +65,40 @@ func getNames(u *url.URL) (string, string) {
 	return serviceName, methodName
 }
 
-func writeResponse(w http.ResponseWriter, message proto.Message) {
+func createGRPCBytes(protoBytes []byte) []byte {
+	length := len(protoBytes)
+	return append([]byte{
+		// not compress
+		0,
+		byte(length / (256 ^ 3)),
+		byte((length % (256 ^ 3)) / (256 ^ 2)),
+		byte((length % (256 ^ 2)) / 256),
+		byte(length % 256),
+	}, protoBytes...)
+}
+
+func writeResponse(w http.ResponseWriter, message proto.Message, res Response) {
 	protoBytes, err := proto.Marshal(message)
 	if err != nil {
 		log.Print(err.Error())
 		return
 	}
-	grpcBytes := append([]byte{0, 0, 0, 0, byte(len(protoBytes))}, protoBytes...)
-	w.Header().Set("Trailer", "Grpc-Message, Grpc-Status")
-	w.Header().Set("Content-Type", "application/grpc")
-	w.WriteHeader(http.StatusOK)
+	grpcBytes := createGRPCBytes(protoBytes)
+	for key := range res.Trailer {
+		w.Header().Add("Trailer", key)
+	}
+	for key, values := range res.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(res.StatusCode)
 	w.Write(grpcBytes)
-	w.Header().Set("Grpc-Message", "")
-	w.Header().Set("Grpc-Status", "0")
+	for key, values := range res.Trailer {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
 }
 
 func main() {
@@ -120,7 +158,7 @@ func main() {
 					return
 				}
 
-				resJson, ok := fixtureMap[serviceName][methodName][string(jsonBytes)]
+				res, ok := fixtureMap[serviceName][methodName][string(jsonBytes)]
 				if !ok {
 					log.Print("no fixture found")
 					return
@@ -129,11 +167,11 @@ func main() {
 				// stubbed request message
 				outputType := methodDesc.GetOutputType()
 				resMessage := dynamic.NewMessage(outputType)
-				if err := resMessage.UnmarshalJSON([]byte(resJson)); err != nil {
+				if err := resMessage.UnmarshalJSON([]byte(res.Body)); err != nil {
 					log.Print(err.Error())
 					return
 				}
-				writeResponse(w, resMessage)
+				writeResponse(w, resMessage, res)
 			}),
 		})
 	}
